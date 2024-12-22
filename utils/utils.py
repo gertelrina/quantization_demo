@@ -257,8 +257,8 @@ def benchmark(model_path, bs=100, bs_divide=True, runs=100, device='both'):
 
       total_cpu /= runs
     
-      print(f"CPU Avg: {total_cpu:.2f}ms, per 1 img: {total_cpu / bs:.2f}ms\n")
-      
+      print(f"\nCPU Avg: {total_cpu:.2f}ms, per 1 img: {total_cpu / bs:.2f}ms\n")
+
     if device == 'gpu' or device == 'both':
       # GPU benchmark
       ort_provider_gpu = ['CUDAExecutionProvider']
