@@ -194,54 +194,45 @@ def simplify_model(model_path, save = False):
   return new_path
 
 
-# def benchmark(model_path, bs = 100, bs_divide = True):
-#     set_seed()
-#     print(bcolors.OKBLUE, f"Model - {model_path}", bcolors.ENDC)
-#     # import onnxruntime
-#     import time
-#     ort_provider = ['CPUExecutionProvider']
-#     session = onnxruntime.InferenceSession(model_path, providers = ort_provider)
-#     print(session._providers)
-#     input_name = session.get_inputs()[0].name
-
-#     total = 0.0
-#     runs = 100
-
-#     input_data = np.zeros((bs, 3, 32, 32), np.float32)
-#     X_ortvalue = onnxruntime.OrtValue.ortvalue_from_numpy(input_data, 'cpu')
-#     # Warming up
-#     _ = session.run([], {input_name: X_ortvalue})
-#     for i in tqdm(range(runs)):
-#         start = time.perf_counter()
-#         _ = session.run([], {input_name: X_ortvalue})
-#         end = (time.perf_counter() - start) * 1000
-#         total += end
-#     total /= runs
-#     print(f"CPU Avg: {total:.2f}ms, per 1 img: {total/bs:.2f}ms")
-
-
-#     ort_provider2 = ['CUDAExecutionProvider']
-#     session2 = onnxruntime.InferenceSession(model_path, providers= ort_provider2)
-
-#     print(session2._providers)
-#     input_name = session2.get_inputs()[0].name
-
-#     total = 0.0
-#     # runs = 1000
-#     input_data = np.zeros((bs, 3, 32, 32), np.float32)
-#     X_ortvalue2 = onnxruntime.OrtValue.ortvalue_from_numpy(input_data, 'cuda', 0)
-#     # Warming up
-#     _ = session2.run([], {input_name: X_ortvalue2})
-#     for i in tqdm(range(runs)):
-#         start = time.perf_counter()
-#         _ = session2.run([], {input_name: X_ortvalue2})
-#         end = (time.perf_counter() - start) * 1000
-#         total += end
-#         # print(f"{end:.2f}ms")
-#     total /= runs
-#     print(f"GPU Avg: {total:.2f}, per 1 img: {total/bs:.2f}ms")
-
 def benchmark(model_path, bs=100, bs_divide=True, runs=100, device='both'):
+    """
+    Функция benchmark используется для измерения времени выполнения инференса модели ONNX на CPU и/или GPU. 
+
+    Аргументы:
+    - model_path (str): Путь к модели в формате ONNX.
+    - bs (int): Размер батча, который будет использоваться для тестирования (по умолчанию 100).
+    - bs_divide (bool): Зарезервировано для будущих возможностей, пока не используется.
+    - runs (int): Количество прогонов для измерения среднего времени выполнения (по умолчанию 100).
+    - device (str): Устройство для тестирования ('cpu', 'gpu', или 'both' для тестирования на обоих).
+
+    Логика:
+    1. Устанавливается фиксированный seed для воспроизводимости результатов.
+    2. В зависимости от устройства (device):
+       - Создается сессия InferenceSession для CPU или GPU с соответствующим провайдером ONNX Runtime.
+       - Генерируются входные данные в виде массива numpy с форматом (batch_size, 3, 32, 32) и типом float32.
+       - Выполняется разогрев модели (warming up), чтобы исключить влияние первого прогона на результаты.
+       - Производится измерение времени выполнения инференса с использованием цикла `for` и фиксируется время выполнения каждого прогона.
+    3. Рассчитывается среднее время выполнения для всех прогонов и выводится результат в миллисекундах.
+
+    Пример вывода:
+    - Для CPU:
+      "CPU Avg: 12.34ms, per 1 img: 0.12ms"
+    - Для GPU:
+      "GPU Avg: 1.23ms, per 1 img: 0.01ms"
+
+    Особенности:
+    - Используются tqdm для отображения прогресса выполнения тестов.
+    - Отдельное измерение времени выполнения инференса для каждого устройства.
+    - Печать результатов в формате, удобном для анализа производительности.
+
+    Пояснения по коду:
+    - `onnxruntime.InferenceSession`: Создает сессию для выполнения инференса с использованием ONNX Runtime.
+    - `ortvalue_from_numpy`: Конвертирует входной numpy массив в формат OrtValue, поддерживаемый ONNX Runtime.
+    - `time.perf_counter`: Используется для точного измерения времени выполнения.
+    - `tqdm`: Добавляет визуальное представление прогресса в циклах.
+
+    Выводы по результатам теста помогут оценить производительность модели на разных устройствах (CPU и GPU).
+    """
     set_seed()
     print(bcolors.OKBLUE, f"Model - {model_path}", bcolors.ENDC)
 
