@@ -279,7 +279,7 @@ def benchmark(model_path, bs=100, bs_divide=True, runs=100, device='both'):
           total_gpu += end_gpu
 
       total_gpu /= runs
-      print(f"GPU Avg: {total_gpu:.2f}, per 1 img: {total_gpu / bs:.2f}ms")
+      print(f"\nGPU Avg: {total_gpu:.2f}, per 1 img: {total_gpu / bs:.2f}ms\n")
 
 
 def get_onnx_model_info(model_path):
