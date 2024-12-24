@@ -14,7 +14,7 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import random_split
+from torch.utils.data import random_split, DataLoader, Dataset
 import argparse
 from tqdm import tqdm
 from PIL import Image
@@ -23,6 +23,7 @@ import onnxruntime
 from onnxruntime import quantization
 from tqdm import tqdm
 import time
+
 
 class bcolors:
   HEADER = '\033[95m'
