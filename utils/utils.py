@@ -58,57 +58,21 @@ def set_seed():
   torch.backends.cudnn.deterministic = True
   torch.backends.cudnn.benchmark = False
 
-def export_model(model, model_path, bs = 1, dynamic = False, save = False):
-  """
-    Export a PyTorch model to the ONNX format.
+class RandomTensorDataset(Dataset):
+    def __init__(self, size, shape=(3, 224, 224)):
+        self.size = size
+        self.shape = shape
 
-    Parameters:
-        model (torch.nn.Module): The PyTorch model to be exported.
-        model_path (str): The path where the ONNX model will be saved.
-        bs (int, optional): Batch size for model inference. Default is 1.
-        dynamic (bool, optional): Flag indicating dynamic axes for variable length inputs. Default is False.
-        save (bool, optional): Flag to download the exported model after saving. Default is False.
+    def __len__(self):
+        return self.size
 
-    Returns:
-        None
-  """
-  model = model.to('cpu')
-  model.eval()
-  # Input to the model
-  batch_size = bs
-  x = torch.randn(batch_size, 3, 32, 32, requires_grad=False)
-  with torch.no_grad():
-    torch_out = model(x)
-  # Export the model
-  if dynamic:
-    torch.onnx.export(model,               # model being run
-                  x,                         # model input (or a tuple for multiple inputs)
-                  model_path,   # where to save the model (can be a file or file-like object)
-                  export_params=True,        # store the trained parameter weights inside the model file
-                  opset_version=11,          # the ONNX version to export the model to
-                  do_constant_folding=False,  # whether to execute constant folding for optimization
-                  input_names = ['input'],   # the model's input names
-                  output_names = ['output'], # the model's output names
-                  dynamic_axes={'input' : {0 : 'batch_size'},    # variable length axes
-                                'output' : {0 : 'batch_size'}}
-                  )
-  else:
-        torch.onnx.export(model,               # model being run
-                  x,                         # model input (or a tuple for multiple inputs)
-                  model_path,   # where to save the model (can be a file or file-like object)
-                  export_params=True,        # store the trained parameter weights inside the model file
-                  opset_version=11,          # the ONNX version to export the model to
-                  do_constant_folding=False,  # whether to execute constant folding for optimization
-                  input_names = ['input'],   # the model's input names
-                  output_names = ['output'], # the model's output names
-                  # dynamic_axes={'input' : {0 : 'batch_size'},    # variable length axes
-                  #               'output' : {0 : 'batch_size'}}
-                  )
+    def __getitem__(self, idx):
+        # Generate a random tensor and a random label (10 classes)
+        data = torch.rand(self.shape)
+        label = torch.randint(0, 10, (1,)).item()
+        return data, label
 
-  # if save:
-  #   files.download(model_path)
-
-def prepare_test_data():
+def prepare_test_data(random=False):
   set_seed()
   print('==> Preparing data..')
 
@@ -116,12 +80,14 @@ def prepare_test_data():
       transforms.ToTensor(),
       transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
   ])
-
-  testset = torchvision.datasets.CIFAR10(
+  if random:
+    print('Random Dataset')
+    testset = RandomTensorDataset(size=dataset_size)
+  else:
+    print('CIFAR10 Dataset')
+    testset = torchvision.datasets.CIFAR10(
       root='./data', train=False, download=True, transform=transform_test)
-
-
-
+  
   quant_size = 100
   test_size = len(testset) - quant_size
   test_ds, quant_ds = random_split(testset, [test_size, quant_size])
@@ -135,6 +101,14 @@ def prepare_test_data():
   #     quant_ds, batch_size=100, shuffle=False, num_workers=2)
 
   return testloader, quant_ds
+
+import torch
+from torch.utils.data import DataLoader, Dataset, random_split
+import random
+
+def set_seed(seed=42):
+    torch.manual_seed(seed)
+    random.seed(seed)
 
 def get_acc(model_path, data, device = 'cuda'):
 
@@ -193,95 +167,6 @@ def simplify_model(model_path, save = False):
   #   files.download(new_path)
   return new_path
 
-
-def benchmark(model_path, bs=100, bs_divide=True, runs=100, device='both'):
-    """
-    Функция benchmark используется для измерения времени выполнения инференса модели ONNX на CPU и/или GPU. 
-
-    Аргументы:
-    - model_path (str): Путь к модели в формате ONNX.
-    - bs (int): Размер батча, который будет использоваться для тестирования (по умолчанию 100).
-    - bs_divide (bool): Зарезервировано для будущих возможностей, пока не используется.
-    - runs (int): Количество прогонов для измерения среднего времени выполнения (по умолчанию 100).
-    - device (str): Устройство для тестирования ('cpu', 'gpu', или 'both' для тестирования на обоих).
-
-    Логика:
-    1. Устанавливается фиксированный seed для воспроизводимости результатов.
-    2. В зависимости от устройства (device):
-       - Создается сессия InferenceSession для CPU или GPU с соответствующим провайдером ONNX Runtime.
-       - Генерируются входные данные в виде массива numpy с форматом (batch_size, 3, 32, 32) и типом float32.
-       - Выполняется разогрев модели (warming up), чтобы исключить влияние первого прогона на результаты.
-       - Производится измерение времени выполнения инференса с использованием цикла `for` и фиксируется время выполнения каждого прогона.
-    3. Рассчитывается среднее время выполнения для всех прогонов и выводится результат в миллисекундах.
-
-    Пример вывода:
-    - Для CPU:
-      "CPU Avg: 12.34ms, per 1 img: 0.12ms"
-    - Для GPU:
-      "GPU Avg: 1.23ms, per 1 img: 0.01ms"
-
-    Особенности:
-    - Используются tqdm для отображения прогресса выполнения тестов.
-    - Отдельное измерение времени выполнения инференса для каждого устройства.
-    - Печать результатов в формате, удобном для анализа производительности.
-
-    Пояснения по коду:
-    - `onnxruntime.InferenceSession`: Создает сессию для выполнения инференса с использованием ONNX Runtime.
-    - `ortvalue_from_numpy`: Конвертирует входной numpy массив в формат OrtValue, поддерживаемый ONNX Runtime.
-    - `time.perf_counter`: Используется для точного измерения времени выполнения.
-    - `tqdm`: Добавляет визуальное представление прогресса в циклах.
-
-    Выводы по результатам теста помогут оценить производительность модели на разных устройствах (CPU и GPU).
-    """
-    set_seed()
-    print(bcolors.OKBLUE, f"Model - {model_path}", bcolors.ENDC)
-
-    if device == 'cpu' or device == 'both':
-      # CPU benchmark
-      ort_provider = ['CPUExecutionProvider']
-      session_cpu = onnxruntime.InferenceSession(model_path, providers=ort_provider)
-      input_name_cpu = session_cpu.get_inputs()[0].name
-
-      total_cpu = 0.0
-      input_data_cpu = np.zeros((bs, 3, 32, 32), np.float32)
-      X_ortvalue_cpu = onnxruntime.OrtValue.ortvalue_from_numpy(input_data_cpu, 'cpu')
-
-      # Warming up
-      _ = session_cpu.run([], {input_name_cpu: X_ortvalue_cpu})
-
-      for _ in tqdm(range(runs), desc="CPU Benchmark"):
-          start_cpu = time.perf_counter()
-          _ = session_cpu.run([], {input_name_cpu: X_ortvalue_cpu})
-          end_cpu = (time.perf_counter() - start_cpu) * 1000
-          total_cpu += end_cpu
-
-      total_cpu /= runs
-    
-      print(f"\nCPU Avg: {total_cpu:.2f}ms, per 1 img: {total_cpu / bs:.2f}ms\n")
-
-    if device == 'gpu' or device == 'both':
-      # GPU benchmark
-      ort_provider_gpu = ['CUDAExecutionProvider']
-      session_gpu = onnxruntime.InferenceSession(model_path, providers=ort_provider_gpu)
-      input_name_gpu = session_gpu.get_inputs()[0].name
-
-      total_gpu = 0.0
-      input_data_gpu = np.zeros((bs, 3, 32, 32), np.float32)
-      X_ortvalue_gpu = onnxruntime.OrtValue.ortvalue_from_numpy(input_data_gpu, 'cuda', 0)
-
-      # Warming up
-      _ = session_gpu.run([], {input_name_gpu: X_ortvalue_gpu})
-
-      for _ in tqdm(range(runs), desc="GPU Benchmark"):
-          start_gpu = time.perf_counter()
-          _ = session_gpu.run([], {input_name_gpu: X_ortvalue_gpu})
-          end_gpu = (time.perf_counter() - start_gpu) * 1000
-          total_gpu += end_gpu
-
-      total_gpu /= runs
-      print(f"\nGPU Avg: {total_gpu:.2f}, per 1 img: {total_gpu / bs:.2f}ms\n")
-
-
 def get_onnx_model_info(model_path):
     """
     Get information about an ONNX model, including the number of parameters and model size.
@@ -320,7 +205,6 @@ def get_onnx_model_info(model_path):
     print(f"Number of parameters: {ans['params']}")
     print(f"Model size: {ans['model_size']}")
     return ans
-
 
 def plot_bar_chart_with_values(x_values, y_values, x_label, y_label, title, legend_labels=None):
     """
@@ -366,3 +250,137 @@ def plot_bar_chart_with_values(x_values, y_values, x_label, y_label, title, lege
     # Show the plot
     plt.show()
 
+def export_model(model, model_path, bs = 1, dynamic = False, save = False, sz=32):
+  """
+    Export a PyTorch model to the ONNX format.
+
+    Parameters:
+        model (torch.nn.Module): The PyTorch model to be exported.
+        model_path (str): The path where the ONNX model will be saved.
+        bs (int, optional): Batch size for model inference. Default is 1.
+        dynamic (bool, optional): Flag indicating dynamic axes for variable length inputs. Default is False.
+        save (bool, optional): Flag to download the exported model after saving. Default is False.
+
+    Returns:
+        None
+  """
+  model = model.to('cpu')
+  model.eval()
+  # Input to the model
+  batch_size = bs
+  x = torch.randn(batch_size, 3, sz, sz, requires_grad=False)
+  with torch.no_grad():
+    torch_out = model(x)
+  # Export the model
+  if dynamic:
+    torch.onnx.export(model,               # model being run
+                  x,                         # model input (or a tuple for multiple inputs)
+                  model_path,   # where to save the model (can be a file or file-like object)
+                  export_params=True,        # store the trained parameter weights inside the model file
+                  opset_version=11,          # the ONNX version to export the model to
+                  do_constant_folding=False,  # whether to execute constant folding for optimization
+                  input_names = ['input'],   # the model's input names
+                  output_names = ['output'], # the model's output names
+                  dynamic_axes={'input' : {0 : 'batch_size'},    # variable length axes
+                                'output' : {0 : 'batch_size'}}
+                  )
+  else:
+        torch.onnx.export(model,               # model being run
+                  x,                         # model input (or a tuple for multiple inputs)
+                  model_path,   # where to save the model (can be a file or file-like object)
+                  export_params=True,        # store the trained parameter weights inside the model file
+                  opset_version=11,          # the ONNX version to export the model to
+                  do_constant_folding=False,  # whether to execute constant folding for optimization
+                  input_names = ['input'],   # the model's input names
+                  output_names = ['output'], # the model's output names
+                  # dynamic_axes={'input' : {0 : 'batch_size'},    # variable length axes
+                  #               'output' : {0 : 'batch_size'}}
+                  )
+def benchmark(model_path, bs=100, bs_divide=True, runs=100, device='both', sz=32):
+    """
+    Функция benchmark используется для измерения времени выполнения инференса модели ONNX на CPU и/или GPU.
+
+    Аргументы:
+    - model_path (str): Путь к модели в формате ONNX.
+    - bs (int): Размер батча, который будет использоваться для тестирования (по умолчанию 100).
+    - bs_divide (bool): Зарезервировано для будущих возможностей, пока не используется.
+    - runs (int): Количество прогонов для измерения среднего времени выполнения (по умолчанию 100).
+    - device (str): Устройство для тестирования ('cpu', 'gpu', или 'both' для тестирования на обоих).
+
+    Логика:
+    1. Устанавливается фиксированный seed для воспроизводимости результатов.
+    2. В зависимости от устройства (device):
+       - Создается сессия InferenceSession для CPU или GPU с соответствующим провайдером ONNX Runtime.
+       - Генерируются входные данные в виде массива numpy с форматом (batch_size, 3, 32, 32) и типом float32.
+       - Выполняется разогрев модели (warming up), чтобы исключить влияние первого прогона на результаты.
+       - Производится измерение времени выполнения инференса с использованием цикла `for` и фиксируется время выполнения каждого прогона.
+    3. Рассчитывается среднее время выполнения для всех прогонов и выводится результат в миллисекундах.
+
+    Пример вывода:
+    - Для CPU:
+      "CPU Avg: 12.34ms, per 1 img: 0.12ms"
+    - Для GPU:
+      "GPU Avg: 1.23ms, per 1 img: 0.01ms"
+
+    Особенности:
+    - Используются tqdm для отображения прогресса выполнения тестов.
+    - Отдельное измерение времени выполнения инференса для каждого устройства.
+    - Печать результатов в формате, удобном для анализа производительности.
+
+    Пояснения по коду:
+    - `onnxruntime.InferenceSession`: Создает сессию для выполнения инференса с использованием ONNX Runtime.
+    - `ortvalue_from_numpy`: Конвертирует входной numpy массив в формат OrtValue, поддерживаемый ONNX Runtime.
+    - `time.perf_counter`: Используется для точного измерения времени выполнения.
+    - `tqdm`: Добавляет визуальное представление прогресса в циклах.
+
+    Выводы по результатам теста помогут оценить производительность модели на разных устройствах (CPU и GPU).
+    """
+    set_seed()
+    print(bcolors.OKBLUE, f"Model - {model_path}", bcolors.ENDC)
+    if device == 'cpu' or device == 'both':
+      # CPU benchmark
+      ort_provider = ['CPUExecutionProvider']
+      session_cpu = onnxruntime.InferenceSession(model_path, providers=ort_provider)
+      input_name_cpu = session_cpu.get_inputs()[0].name
+
+      total_cpu = 0.0
+      input_data_cpu = np.zeros((bs, 3, sz, sz), np.float32)
+      X_ortvalue_cpu = onnxruntime.OrtValue.ortvalue_from_numpy(input_data_cpu, 'cpu')
+
+      # Warming up
+      _ = session_cpu.run([], {input_name_cpu: X_ortvalue_cpu})
+
+      for _ in tqdm(range(runs), desc="CPU Benchmark"):
+          start_cpu = time.perf_counter()
+          _ = session_cpu.run([], {input_name_cpu: X_ortvalue_cpu})
+          end_cpu = (time.perf_counter() - start_cpu) * 1000
+          total_cpu += end_cpu
+
+      total_cpu /= runs
+
+      print(f"CPU Avg: {total_cpu:.2f}ms, per 1 img: {total_cpu / bs:.2f}ms\n")
+    # print()
+    if device == 'gpu' or device == 'both':
+      # GPU benchmark
+      ort_provider_gpu = ['CUDAExecutionProvider']
+      session_gpu = onnxruntime.InferenceSession(model_path, providers=ort_provider_gpu)
+      input_name_gpu = session_gpu.get_inputs()[0].name
+
+      total_gpu = 0.0
+      input_data_gpu = np.zeros((bs, 3, sz, sz), np.float32)
+      X_ortvalue_gpu = onnxruntime.OrtValue.ortvalue_from_numpy(input_data_gpu, 'cuda', 0)
+
+      # Warming up
+      _ = session_gpu.run([], {input_name_gpu: X_ortvalue_gpu})
+
+      for _ in tqdm(range(runs), desc="GPU Benchmark"):
+          start_gpu = time.perf_counter()
+          _ = session_gpu.run([], {input_name_gpu: X_ortvalue_gpu})
+          end_gpu = (time.perf_counter() - start_gpu) * 1000
+          total_gpu += end_gpu
+
+      total_gpu /= runs
+      # print()
+      # print()
+      print(f"GPU Avg: {total_gpu:.2f}, per 1 img: {total_gpu / bs:.2f}ms\n")
+      # print()
