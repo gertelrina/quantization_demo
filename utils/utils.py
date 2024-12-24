@@ -83,7 +83,7 @@ def prepare_test_data(random=False):
   ])
   if random:
     print('Random Dataset')
-    testset = RandomTensorDataset(size=dataset_size)
+    testset = RandomTensorDataset(size=10000)
   else:
     print('CIFAR10 Dataset')
     testset = torchvision.datasets.CIFAR10(
